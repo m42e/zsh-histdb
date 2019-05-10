@@ -23,11 +23,12 @@ _histdb_init () {
             mkdir -p -- "$hist_dir"
         fi
         _histdb_query <<-EOF
-create table commands (argv text, unique(argv) on conflict ignore);
-create table places   (host text, dir text, unique(host, dir) on conflict ignore);
-create table history  (session int,
-                       command_id int references commands (rowid),
-                       place_id int references places (rowid),
+create table commands (id integer primary key autoincrement, argv text, unique(argv) on conflict ignore);
+create table places   (id integer primary key autoincrement, host text, dir text, unique(host, dir) on conflict ignore);
+create table history  (id integer primary key autoincrement,
+											 session int,
+                       command_id int references commands (id),
+                       place_id int references places (id),
                        exit_status int,
                        start_time int,
                        duration int);
@@ -82,8 +83,8 @@ insert into history
   (session, command_id, place_id, start_time)
 select
   ${HISTDB_SESSION},
-  commands.rowid,
-  places.rowid,
+  commands.id,
+  places.id,
   ${started}
 from
   commands, places
@@ -123,7 +124,7 @@ histdb-top () {
             -header \
             "select count(*) as count, places.host, replace($field, '
 ', '
-$sep$sep') as ${1:-cmd} from history left join commands on history.command_id=commands.rowid left join places on history.place_id=places.rowid group by places.host, $field order by count(*)" | \
+$sep$sep') as ${1:-cmd} from history left join commands on history.command_id=commands.id left join places on history.place_id=places.rowid group by places.host, $field order by count(*)" | \
         "${HISTDB_TABULATE_CMD[@]}"
 }
 
@@ -322,22 +323,22 @@ $seps') as argv, max(start_time) as max_start"
     local query="select ${selcols} from (select ${cols}
 from
   history
-  left join commands on history.command_id = commands.rowid
-  left join places on history.place_id = places.rowid
+  left join commands on history.command_id = commands.id
+  left join places on history.place_id = places.id
 where ${where}
 group by history.command_id, history.place_id
 order by max_start desc
-${limit:+limit $limit}) order by max_start ${oderdir}"
+${limit:+limit $limit}) order by max_start ${orderdir}"
 
     ## min max date?
     local count_query="select count(*) from (select ${cols}
 from
   history
-  left join commands on history.command_id = commands.rowid
-  left join places on history.place_id = places.rowid
+  left join commands on history.command_id = commands.id
+  left join places on history.place_id = places.id
 where ${where}
 group by history.command_id, history.place_id
-order by max_start desc) order by max_start ${oderdir}"
+order by max_start desc) order by max_start ${orderdir}"
 
     if [[ $debug = 1 ]]; then
         echo "$query"
@@ -371,8 +372,8 @@ order by max_start desc) order by max_start ${oderdir}"
 history.rowid in (
 select history.rowid from
 history
-  left join commands on history.command_id = commands.rowid
-  left join places on history.place_id = places.rowid
+  left join commands on history.command_id = commands.id
+  left join places on history.place_id = places.id
 where ${where})"
             _histdb_query "delete from commands where commands.rowid not in (select distinct history.command_id from history)"
         fi

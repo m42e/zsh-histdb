@@ -158,6 +158,7 @@ histdb () {
                -at+::=atdirs \
                -forget \
                -detail \
+               -desc \
                -sep:- \
                -exact \
                d h -help \
@@ -172,6 +173,7 @@ histdb () {
     --at      like --in, but excluding subdirectories
     -s n      only show session n
     -d        debug output query that will be run
+    --desc    descending sort order (default ist asc)
     --detail  show details
     --forget  forget everything which matches in the history
     --exact   don't match substrings
@@ -231,10 +233,14 @@ histdb () {
     fi
 
     local sep=$'\x1f'
+    local orderdir='asc'
     local debug=0
     local opt=""
     for opt ($opts); do
         case $opt in
+            --desc)
+                orderdir='desc'
+                ;;
             --sep*)
                 sep=${opt#--sep}
                 ;;
@@ -321,7 +327,7 @@ from
 where ${where}
 group by history.command_id, history.place_id
 order by max_start desc
-${limit:+limit $limit}) order by max_start asc"
+${limit:+limit $limit}) order by max_start ${oderdir}"
 
     ## min max date?
     local count_query="select count(*) from (select ${cols}
@@ -331,7 +337,7 @@ from
   left join places on history.place_id = places.rowid
 where ${where}
 group by history.command_id, history.place_id
-order by max_start desc) order by max_start asc"
+order by max_start desc) order by max_start ${oderdir}"
 
     if [[ $debug = 1 ]]; then
         echo "$query"

@@ -145,7 +145,7 @@ histdb-sync () {
         if [[ $(git rev-parse --is-inside-work-tree) != "true" ]] || [[ "$(git rev-parse --show-toplevel)" != "$(pwd)" ]]; then
             git init
             git config merge.histdb.driver "$(dirname ${HISTDB_INSTALLED_IN})/histdb-merge %O %A %B"
-            echo "$(basename ${HISTDB_FILE}) merge=histdb" | tee -a .gitattributes &>-
+            echo "$(basename ${HISTDB_FILE}) merge=histdb" | tee -a .gitattributes 
             git add .gitattributes
             git add "$(basename ${HISTDB_FILE})"
         fi

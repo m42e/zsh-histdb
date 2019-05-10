@@ -57,11 +57,12 @@ histdb-update-outcome () {
     local finished=$(date +%s)
     if [[ $HISTDB_AWAITING_EXIT == 1 ]]; then
         _histdb_init
-        _histdb_query "
-				begin transaction;
-				update history set exit_status = ${retval}, duration = ${finished} - start_time
+        _histdb_query <<-EOF
+begin transaction;
+update history set exit_status = ${retval}, duration = ${finished} - start_time
 where id = (select max(id) from history) and session = ${HISTDB_SESSION}
-				commit;"
+commit;
+EOF
         HISTDB_AWAITING_EXIT=0
     fi
 }
@@ -81,8 +82,8 @@ _histdb_addhistory () {
     _histdb_init
 
     if [[ "$cmd" != "''" ]]; then
-        _histdb_query \
-"begin transaction;
+        _histdb_query <<-EOF
+begin transaction;
 insert into commands (argv) values (${cmd});
 insert into places   (host, dir) values (${HISTDB_HOST}, ${pwd});
 insert into history
@@ -99,7 +100,8 @@ where
   places.host = ${HISTDB_HOST} and
   places.dir = ${pwd}
 ;
-commit;"
+commit;
+EOF
         HISTDB_AWAITING_EXIT=1
     fi
     return 0

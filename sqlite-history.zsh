@@ -23,6 +23,7 @@ _histdb_init () {
             mkdir -p -- "$hist_dir"
         fi
         _histdb_query <<-EOF
+begin transaction;
 create table commands (id integer primary key autoincrement, argv text, unique(argv) on conflict ignore);
 create table places   (id integer primary key autoincrement, host text, dir text, unique(host, dir) on conflict ignore);
 create table history  (id integer primary key autoincrement,
@@ -32,6 +33,7 @@ create table history  (id integer primary key autoincrement,
                        exit_status int,
                        start_time int,
                        duration int);
+commit;
 EOF
     fi
     if [[ -z "${HISTDB_SESSION}" ]]; then
@@ -55,8 +57,11 @@ histdb-update-outcome () {
     local finished=$(date +%s)
     if [[ $HISTDB_AWAITING_EXIT == 1 ]]; then
         _histdb_init
-        _histdb_query "update history set exit_status = ${retval}, duration = ${finished} - start_time
-where id = (select max(id) from history) and session = ${HISTDB_SESSION}"
+        _histdb_query "
+				begin transaction;
+				update history set exit_status = ${retval}, duration = ${finished} - start_time
+where id = (select max(id) from history) and session = ${HISTDB_SESSION}
+				commit;"
         HISTDB_AWAITING_EXIT=0
     fi
 }
@@ -77,7 +82,8 @@ _histdb_addhistory () {
 
     if [[ "$cmd" != "''" ]]; then
         _histdb_query \
-"insert into commands (argv) values (${cmd});
+"begin transaction;
+insert into commands (argv) values (${cmd});
 insert into places   (host, dir) values (${HISTDB_HOST}, ${pwd});
 insert into history
   (session, command_id, place_id, start_time)
@@ -92,7 +98,8 @@ where
   commands.argv = ${cmd} and
   places.host = ${HISTDB_HOST} and
   places.dir = ${pwd}
-;"
+;
+commit;"
         HISTDB_AWAITING_EXIT=1
     fi
     return 0

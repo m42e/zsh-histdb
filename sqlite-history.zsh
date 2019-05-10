@@ -36,7 +36,7 @@ EOF
     fi
     if [[ -z "${HISTDB_SESSION}" ]]; then
         HISTDB_HOST="'$(sql_escape ${HOST})'"
-        HISTDB_SESSION=$(_histdb_query "select 1+max(session) from history inner join places on places.rowid=history.place_id where places.host = ${HISTDB_HOST}")
+        HISTDB_SESSION=$(_histdb_query "select 1+max(session) from history inner join places on places.id=history.place_id where places.host = ${HISTDB_HOST}")
         HISTDB_SESSION="${HISTDB_SESSION:-0}"
         readonly HISTDB_SESSION
     fi
@@ -56,7 +56,7 @@ histdb-update-outcome () {
     if [[ $HISTDB_AWAITING_EXIT == 1 ]]; then
         _histdb_init
         _histdb_query "update history set exit_status = ${retval}, duration = ${finished} - start_time
-where rowid = (select max(rowid) from history) and session = ${HISTDB_SESSION}"
+where id = (select max(id) from history) and session = ${HISTDB_SESSION}"
         HISTDB_AWAITING_EXIT=0
     fi
 }
@@ -111,12 +111,12 @@ histdb-top () {
     case "$1" in
         dir)
             field=places.dir
-            join='places.rowid = history.place_id'
+            join='places.id = history.place_id'
             table=places
             ;;
         cmd)
             field=commands.argv
-            join='commands.rowid = history.command_id'
+            join='commands.id = history.command_id'
             table=commands
             ;;;
     esac
@@ -124,7 +124,7 @@ histdb-top () {
             -header \
             "select count(*) as count, places.host, replace($field, '
 ', '
-$sep$sep') as ${1:-cmd} from history left join commands on history.command_id=commands.id left join places on history.place_id=places.rowid group by places.host, $field order by count(*)" | \
+$sep$sep') as ${1:-cmd} from history left join commands on history.command_id=commands.id left join places on history.place_id=places.id group by places.host, $field order by count(*)" | \
         "${HISTDB_TABULATE_CMD[@]}"
 }
 
@@ -369,13 +369,13 @@ order by max_start desc) order by max_start ${orderdir}"
         read -q "REPLY?Forget all these results? [y/n] "
         if [[ $REPLY =~ "[yY]" ]]; then
             _histdb_query "delete from history where
-history.rowid in (
-select history.rowid from
+history.id in (
+select history.id from
 history
   left join commands on history.command_id = commands.id
   left join places on history.place_id = places.id
 where ${where})"
-            _histdb_query "delete from commands where commands.rowid not in (select distinct history.command_id from history)"
+            _histdb_query "delete from commands where commands.id not in (select distinct history.command_id from history)"
         fi
     fi
 }

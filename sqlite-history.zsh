@@ -60,7 +60,7 @@ histdb-update-outcome () {
         _histdb_query <<-EOF
 begin transaction;
 update history set exit_status = ${retval}, duration = ${finished} - start_time
-where id = (select max(id) from history) and session = ${HISTDB_SESSION}
+where id = (select max(id) from history) and session = ${HISTDB_SESSION};
 commit;
 EOF
         HISTDB_AWAITING_EXIT=0

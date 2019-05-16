@@ -21,10 +21,15 @@ _histdb_check_version() {
 	local CURRENT_VERSION=$(_histdb_query 'PRAGMA user_version')
 	if [[ ${CURRENT_VERSION} -lt ${HISTDB_SCHEMA_VERSION} ]]; then
 		echo "HISTDB: The schema of the database is to old. Expect errors to happen. Got ${CURRENT_VERSION}, expected ${HISTDB_SCHEMA_VERSION}"
+		echo "HISTDB: Trying to update database"
+		_histdb_update_database
 	fi
 	if [[ ${CURRENT_VERSION} -gt ${HISTDB_SCHEMA_VERSION} ]]; then
 		echo "HISTDB: You are using a newer database schema than expected. Please update histdb. Got ${CURRENT_VERSION}, expected ${HISTDB_SCHEMA_VERSION}"
 	fi
+}
+_histdb_update_database() {
+	local CURRENT_VERSION=$(_histdb_query 'PRAGMA user_version')
 }
 
 _histdb_init () {

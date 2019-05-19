@@ -11,6 +11,9 @@ typeset -g HISTDB_HOST=""
 typeset -g HISTDB_INSTALLED_IN="${(%):-%N}"
 typeset -g HISTDB_AWAITING_EXIT=0
 typeset -g HISTDB_SCHEMA_VERSION=2
+if [[ -n ${HISTDB_REMOTE} ]]; then
+	typeset -g HISTDB_REMOTE
+fi
 
 sql_escape () {
     sed -e "s/'/''/g" <<< "$@" | tr -d '\000'
@@ -175,11 +178,15 @@ histdb-sync () {
     if [[ -d "$hist_dir" ]]; then
         pushd "$hist_dir"
         if [[ $(git rev-parse --is-inside-work-tree) != "true" ]] || [[ "$(git rev-parse --show-toplevel)" != "$(pwd)" ]]; then
-            git init
-            echo "$(basename ${HISTDB_FILE}) merge=histdb" | tee -a .gitattributes 
-            git add .gitattributes
-            git config merge.histdb.driver "$(dirname ${HISTDB_INSTALLED_IN})/histdb-merge %O %A %B"
-            git add "$(basename ${HISTDB_FILE})"
+						if [[ -n ${HISTDB_REMOTE} ]]; then
+							git clone ${HISTDB_REMOTE} .
+						else
+							git init
+							echo "$(basename ${HISTDB_FILE}) merge=histdb" | tee -a .gitattributes 
+							git add .gitattributes
+							git config merge.histdb.driver "$(dirname ${HISTDB_INSTALLED_IN})/histdb-merge %O %A %B"
+							git add "$(basename ${HISTDB_FILE})"
+						fi
         fi
         git commit -am "history" --allow-empty && git pull --no-edit && git push
         popd

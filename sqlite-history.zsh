@@ -2,9 +2,9 @@ which sqlite3 >/dev/null 2>&1 || return;
 
 typeset -g HISTDB_QUERY=""
 if [[ -z ${HISTDB_FILE} ]]; then
-	typeset -g HISTDB_FILE="${HOME}/.histdb/zsh-history.db"
+  typeset -g HISTDB_FILE="${HOME}/.histdb/zsh-history.db"
 else
-	typeset -g HISTDB_FILE
+  typeset -g HISTDB_FILE
 fi
 typeset -g HISTDB_SESSION=""
 typeset -g HISTDB_HOST=""
@@ -12,7 +12,7 @@ typeset -g HISTDB_INSTALLED_IN="${(%):-%N}"
 typeset -g HISTDB_AWAITING_EXIT=0
 typeset -g HISTDB_SCHEMA_VERSION=2
 if [[ -n ${HISTDB_REMOTE} ]]; then
-	typeset -g HISTDB_REMOTE
+  typeset -g HISTDB_REMOTE
 fi
 
 sql_escape () {
@@ -21,32 +21,32 @@ sql_escape () {
 
 _histdb_query () {
     sqlite3 -cmd ".timeout 1000" "${HISTDB_FILE}" "$@"
-    [[ "$?" -ne 0 ]] && echo "error in $@" 
+    [[ "$?" -ne 0 ]] && echo "error in $@"
 }
 
 _histdb_check_version() {
-	local CURRENT_VERSION=$(_histdb_query 'PRAGMA user_version')
-	if [[ ${CURRENT_VERSION} -lt ${HISTDB_SCHEMA_VERSION} ]]; then
-		echo "HISTDB: The schema of the database is to old. Expect errors to happen. Got ${CURRENT_VERSION}, expected ${HISTDB_SCHEMA_VERSION}"
-		echo "HISTDB: Trying to update database"
-		_histdb_update_database
-	fi
-	if [[ ${CURRENT_VERSION} -gt ${HISTDB_SCHEMA_VERSION} ]]; then
-		echo "HISTDB: You are using a newer database schema than expected. Please update histdb. Got ${CURRENT_VERSION}, expected ${HISTDB_SCHEMA_VERSION}"
-	fi
+  local CURRENT_VERSION=$(_histdb_query 'PRAGMA user_version')
+  if [[ ${CURRENT_VERSION} -lt ${HISTDB_SCHEMA_VERSION} ]]; then
+    echo "HISTDB: The schema of the database is to old. Expect errors to happen. Got ${CURRENT_VERSION}, expected ${HISTDB_SCHEMA_VERSION}"
+    echo "HISTDB: Trying to update database"
+    _histdb_update_database
+  fi
+  if [[ ${CURRENT_VERSION} -gt ${HISTDB_SCHEMA_VERSION} ]]; then
+    echo "HISTDB: You are using a newer database schema than expected. Please update histdb. Got ${CURRENT_VERSION}, expected ${HISTDB_SCHEMA_VERSION}"
+  fi
 }
 _histdb_update_database() {
-	local CURRENT_VERSION=$(_histdb_query 'PRAGMA user_version')
-	local MIGRATION_FILENAME="$(dirname ${HISTDB_INSTALLED_IN})/db_migrations/${CURRENT_VERSION}to${HISTDB_SCHEMA_VERSION}.sql"
-	if [[ -f $MIGRATION_FILENAME ]]; then
-		echo "HISTDB: backing up database to ${HISTDB_FILE}.bak"
-		cp ${HISTDB_FILE} ${HISTDB_FILE}.bak
-		echo "HISTDB: applying ${MIGRATION_FILENAME} to ${HISTDB_FILE}"
-		sqlite3 ${HISTDB_FILE} < $MIGRATION_FILENAME
-		[[ "$?" -ne 0 ]] && (echo "HISTDB: error during database conversion";	cp ${HISTDB_FILE}.bak ${HISTDB_FILE}) || echo "HISTDB: update successfull"
-	else
-		echo "HISTDB: no update from ${CURRENT_VERSION} to ${HISTDB_SCHEMA_VERSION} found"
-	fi
+  local CURRENT_VERSION=$(_histdb_query 'PRAGMA user_version')
+  local MIGRATION_FILENAME="$(dirname ${HISTDB_INSTALLED_IN})/db_migrations/${CURRENT_VERSION}to${HISTDB_SCHEMA_VERSION}.sql"
+  if [[ -f $MIGRATION_FILENAME ]]; then
+    echo "HISTDB: backing up database to ${HISTDB_FILE}.bak"
+    cp ${HISTDB_FILE} ${HISTDB_FILE}.bak
+    echo "HISTDB: applying ${MIGRATION_FILENAME} to ${HISTDB_FILE}"
+    sqlite3 ${HISTDB_FILE} < $MIGRATION_FILENAME
+    [[ "$?" -ne 0 ]] && (echo "HISTDB: error during database conversion";  cp ${HISTDB_FILE}.bak ${HISTDB_FILE}) || echo "HISTDB: update successfull"
+  else
+    echo "HISTDB: no update from ${CURRENT_VERSION} to ${HISTDB_SCHEMA_VERSION} found"
+  fi
 }
 
 _histdb_init () {
@@ -55,15 +55,15 @@ _histdb_init () {
         if ! [[ -d "$hist_dir" ]]; then
             mkdir -p -- "$hist_dir"
         fi
-				if [[ -n ${HISTDB_REMOTE} ]]; then
-					git clone ${HISTDB_REMOTE} $hist_dir
-				else
-					_histdb_query <<-EOF
+        if [[ -n ${HISTDB_REMOTE} ]]; then
+          git clone ${HISTDB_REMOTE} $hist_dir
+        else
+          _histdb_query <<-EOF
 begin transaction;
 create table commands (id integer primary key autoincrement, argv text, unique(argv) on conflict ignore);
 create table places   (id integer primary key autoincrement, host text, dir text, unique(host, dir) on conflict ignore);
 create table history  (id integer primary key autoincrement,
-											 session int,
+                       session int,
                        command_id int references commands (id),
                        place_id int references places (id),
                        exit_status int,
@@ -72,10 +72,10 @@ create table history  (id integer primary key autoincrement,
 PRAGMA user_version = 2
 commit;
 EOF
-				fi
+        fi
     fi
     if [[ -z "${HISTDB_SESSION}" ]]; then
-				_histdb_check_version
+        _histdb_check_version
         HISTDB_HOST="'$(sql_escape ${HOST})'"
         HISTDB_SESSION=$(_histdb_query "select 1+max(session) from history inner join places on places.id=history.place_id where places.host = ${HISTDB_HOST}")
         HISTDB_SESSION="${HISTDB_SESSION:-0}"
@@ -182,15 +182,33 @@ histdb-sync () {
     if [[ -d "$hist_dir" ]]; then
         pushd "$hist_dir"
         if [[ $(git rev-parse --is-inside-work-tree) != "true" ]] || [[ "$(git rev-parse --show-toplevel)" != "$(pwd)" ]]; then
-						if [[ -n ${HISTDB_REMOTE} ]]; then
-							git clone ${HISTDB_REMOTE} .
-						else
-							git init
-							echo "$(basename ${HISTDB_FILE}) merge=histdb" | tee -a .gitattributes 
-							git add .gitattributes
-							git config merge.histdb.driver "$(dirname ${HISTDB_INSTALLED_IN})/histdb-merge %O %A %B"
-							git add "$(basename ${HISTDB_FILE})"
-						fi
+            if [[ -n ${HISTDB_REMOTE} ]]; then
+              tmpdir=$(mktmp -d)
+              backup_db=${tmpdir}/histdb.backup
+              mv ${HISTDB_FILE} ${backup_db}
+              git clone ${HISTDB_REMOTE} .
+							$(dirname ${HISTDB_INSTALLED_IN})/import-history ${HISTDB_FILE} ${backup_db}
+            else
+              git init
+              echo "$(basename ${HISTDB_FILE}) merge=histdb" | tee -a .gitattributes
+              git add .gitattributes
+              git config merge.histdb.driver "$(dirname ${HISTDB_INSTALLED_IN})/histdb-merge %O %A %B"
+              git add "$(basename ${HISTDB_FILE})"
+            fi
+        fi
+				origin_url=$(git config --get remote.origin.url)
+        if [[ "${origin_url}" != "${HISTDB_REMOTE}" ]] && [[ -n "${HISTDB_REMOTE}" ]]; then
+          if [[ "${origin_url}" != "" ]];then
+            git remote rename origin previous
+          fi
+          git remote add origin ${HISTDB_REMOTE}
+          git fetch
+          tmpdir=$(mktmp -d)
+          backup_db=${tmpdir}/histdb.backup
+          git commit -am "switching remote" --allow-empty
+          mv ${HISTDB_FILE} ${backup_db}
+          git reset --hard origin/master
+          $(dirname ${HISTDB_INSTALLED_IN})/import-history ${HISTDB_FILE} ${backup_db}
         fi
         git commit -am "history" --allow-empty && git pull --no-edit && git push
         popd

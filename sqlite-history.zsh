@@ -55,7 +55,10 @@ _histdb_init () {
         if ! [[ -d "$hist_dir" ]]; then
             mkdir -p -- "$hist_dir"
         fi
-        _histdb_query <<-EOF
+				if [[ -n ${HISTDB_REMOTE} ]]; then
+					git clone ${HISTDB_REMOTE} $hist_dir
+				else
+					_histdb_query <<-EOF
 begin transaction;
 create table commands (id integer primary key autoincrement, argv text, unique(argv) on conflict ignore);
 create table places   (id integer primary key autoincrement, host text, dir text, unique(host, dir) on conflict ignore);
@@ -69,6 +72,7 @@ create table history  (id integer primary key autoincrement,
 PRAGMA user_version = 2
 commit;
 EOF
+				fi
     fi
     if [[ -z "${HISTDB_SESSION}" ]]; then
 				_histdb_check_version

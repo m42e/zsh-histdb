@@ -183,7 +183,7 @@ histdb-sync () {
         pushd "$hist_dir"
         if [[ $(git rev-parse --is-inside-work-tree) != "true" ]] || [[ "$(git rev-parse --show-toplevel)" != "$(pwd)" ]]; then
             if [[ -n ${HISTDB_REMOTE} ]]; then
-              tmpdir=$(mktmp -d)
+              tmpdir=$(mktemp -d)
               backup_db=${tmpdir}/histdb.backup
               mv ${HISTDB_FILE} ${backup_db}
               git clone ${HISTDB_REMOTE} .
@@ -200,14 +200,18 @@ histdb-sync () {
         if [[ "${origin_url}" != "${HISTDB_REMOTE}" ]] && [[ -n "${HISTDB_REMOTE}" ]]; then
           if [[ "${origin_url}" != "" ]];then
             git remote rename origin previous
+            git fetch
           fi
-          git remote add origin ${HISTDB_REMOTE}
-          git fetch
-          tmpdir=$(mktmp -d)
+          tmpdir=$(mktemp -d)
+          echo "Backup in $tmpdir"
           backup_db=${tmpdir}/histdb.backup
-          git commit -am "switching remote" --allow-empty
+          git commit -am "switching remote" --allow-empty && git pull --no-edit && git push
+          git remote add origin ${HISTDB_REMOTE}
+          git fetch --all
           mv ${HISTDB_FILE} ${backup_db}
+          git checkout master
           git reset --hard origin/master
+          git config branch.master.remote origin
           $(dirname ${HISTDB_INSTALLED_IN})/import-history ${HISTDB_FILE} ${backup_db}
         fi
         git commit -am "history" --allow-empty && git pull --no-edit && git push

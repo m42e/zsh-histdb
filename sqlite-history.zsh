@@ -95,10 +95,8 @@ histdb-update-outcome () {
     local finished=$(date +%s)
     _histdb_init
     _histdb_query <<-EOF
-begin transaction;
 update history set exit_status = ${retval}, duration = ${finished} - start_time
 where id = (select max(id) from history where session=${HISTDB_SESSION}) and exit_status IS NULL;
-commit;
 EOF
 
 }

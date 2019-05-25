@@ -9,7 +9,6 @@ fi
 typeset -g HISTDB_SESSION=""
 typeset -g HISTDB_HOST=""
 typeset -g HISTDB_INSTALLED_IN="${(%):-%N}"
-typeset -g HISTDB_AWAITING_EXIT=0
 typeset -g HISTDB_SCHEMA_VERSION=2
 if [[ -n ${HISTDB_REMOTE} ]]; then
   typeset -g HISTDB_REMOTE
@@ -94,16 +93,14 @@ fi
 histdb-update-outcome () {
     local retval=$?
     local finished=$(date +%s)
-    if [[ $HISTDB_AWAITING_EXIT == 1 ]]; then
-        _histdb_init
-        _histdb_query <<-EOF
+    _histdb_init
+    _histdb_query <<-EOF
 begin transaction;
 update history set exit_status = ${retval}, duration = ${finished} - start_time
-where id = (select max(id) from history) and session = ${HISTDB_SESSION};
+where id = (select max(id) from history where session=${HISTDB_SESSION}) and exit_status IS NULL;
 commit;
 EOF
-        HISTDB_AWAITING_EXIT=0
-    fi
+
 }
 
 _histdb_addhistory () {
@@ -141,7 +138,6 @@ where
 ;
 commit;
 EOF
-        HISTDB_AWAITING_EXIT=1
     fi
     return 0
 }
@@ -187,7 +183,7 @@ histdb-sync () {
               backup_db=${tmpdir}/histdb.backup
               mv ${HISTDB_FILE} ${backup_db}
               git clone ${HISTDB_REMOTE} .
-							$(dirname ${HISTDB_INSTALLED_IN})/import-history ${HISTDB_FILE} ${backup_db}
+              $(dirname ${HISTDB_INSTALLED_IN})/import-history ${HISTDB_FILE} ${backup_db}
             else
               git init
               echo "$(basename ${HISTDB_FILE}) merge=histdb" | tee -a .gitattributes
@@ -196,7 +192,7 @@ histdb-sync () {
               git add "$(basename ${HISTDB_FILE})"
             fi
         fi
-				origin_url=$(git config --get remote.origin.url)
+        origin_url=$(git config --get remote.origin.url)
         if [[ "${origin_url}" != "${HISTDB_REMOTE}" ]] && [[ -n "${HISTDB_REMOTE}" ]]; then
           if [[ "${origin_url}" != "" ]];then
             git remote rename origin previous
@@ -453,3 +449,5 @@ where ${where})"
         fi
     fi
 }
+
+# vi : expandtab: tabwidth=2 :

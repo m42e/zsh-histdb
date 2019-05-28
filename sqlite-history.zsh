@@ -256,7 +256,7 @@ histdb () {
         local limit="${$((LINES - 4)):-25}"
     fi
 
-    local forget="0"
+    local forget=0
     local exact=0
 
     if (( ${#hosts} )); then

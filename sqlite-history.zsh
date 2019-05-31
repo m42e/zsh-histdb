@@ -118,7 +118,7 @@ _histdb_addhistory () {
     _histdb_init
 
     if [[ "$cmd" != "''" ]]; then
-        _histdb_query <<-EOF
+        (_histdb_query <<-EOF &
 insert into commands (argv) values (${cmd});
 insert into places   (host, dir) values (${HISTDB_HOST}, ${pwd});
 insert into history
@@ -136,6 +136,7 @@ where
   places.dir = ${pwd}
 ;
 EOF
+)
     fi
     return 0
 }

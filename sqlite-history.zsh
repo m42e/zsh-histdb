@@ -91,12 +91,16 @@ fi
 histdb-update-outcome () {
     local retval=$?
     local finished=$(date +%s)
-    _histdb_init
-    _histdb_query <<-EOF
-update history set exit_status = ${retval}, duration = ${finished} - start_time
-where id = (select max(id) from history where session=${HISTDB_SESSION}) and exit_status IS NULL;
-EOF
 
+    _histdb_init
+    _histdb_query <<EOF
+update history set 
+      exit_status = ${retval}, 
+      duration = ${finished} - start_time
+where id = (select max(id) from history) and 
+      session = ${HISTDB_SESSION} and
+      exit_status is NULL;
+EOF
 }
 
 _histdb_addhistory () {

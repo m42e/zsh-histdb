@@ -6,6 +6,10 @@ local theirs=${1:?three databases required}
 
 # for reasons I cannot use the encryption filter here.
 # most annoying.
+#
+echo "Ancestor has $(sqlite3 ${ancestor} 'select count(*) from history') entries"
+echo "We have $(sqlite3 ${ours} 'select count(*) from history') entries"
+echo "Theirs have $(sqlite3 ${theirs} 'select count(*) from history') entries"
 
 sqlite3 "${ours}" <<EOF
 ATTACH DATABASE '${theirs}' AS o;

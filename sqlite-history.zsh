@@ -121,6 +121,7 @@ _histdb_addhistory () {
 
     if [[ "$cmd" != "''" ]]; then
         (_histdb_query <<-EOF &
+pragma busy_timeout=70;
 insert into commands (argv) values (${cmd});
 insert into places   (host, dir) values (${HISTDB_HOST}, ${pwd});
 insert into history

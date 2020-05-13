@@ -81,7 +81,7 @@ EOF
 }
 
 declare -ga _BORING_COMMANDS
-_BORING_COMMANDS=("^ls$" "^cd$" "^ " "^histdb" "^top$" "^htop$")
+_BORING_COMMANDS=("ls" " .*" "histdb.*" "top" "htop")
 
 if [[ -z "${HISTDB_TABULATE_CMD[*]:-}" ]]; then
     declare -ga HISTDB_TABULATE_CMD
@@ -108,11 +108,9 @@ EOF
 _histdb_addhistory () {
     local cmd="${1[0, -2]}"
 
-    for boring in "${_BORING_COMMANDS[@]}"; do
-        if [[ "$cmd" =~ $boring ]]; then
-            return 0
-        fi
-    done
+    if [[ "$cmd" =~ ^(${(j:|:)_BORING_COMMANDS})$ ]]; then
+        return 0
+    fi
 
     local cmd="'$(sql_escape $cmd)'"
     local pwd="'$(sql_escape ${PWD})'"
@@ -121,7 +119,9 @@ _histdb_addhistory () {
 
     if [[ "$cmd" != "''" ]]; then
         (_histdb_query <<-EOF &
-pragma busy_timeout=70;
+.output /dev/null
+PRAGMA busy_timeout = 70;
+.output
 insert into commands (argv) values (${cmd});
 insert into places   (host, dir) values (${HISTDB_HOST}, ${pwd});
 insert into history

@@ -1,5 +1,9 @@
 which sqlite3 >/dev/null 2>&1 || return;
 
+zmodload zsh/system # for sysopen
+zmodload -F zsh/stat b:zstat # just zstat
+autoload -U add-zsh-hook
+
 typeset -g HISTDB_QUERY=""
 if [[ -z ${HISTDB_FILE} ]]; then
   typeset -g HISTDB_FILE="${HOME}/.histdb/zsh-history.db"
@@ -23,32 +27,49 @@ _histdb_query () {
     [[ "$?" -ne 0 ]] && echo "error in $@"
 }
 
-_histdb_check_version() {
-  local CURRENT_VERSION=$(_histdb_query 'PRAGMA user_version')
-  if [[ ${CURRENT_VERSION} -lt ${HISTDB_SCHEMA_VERSION} ]]; then
-    echo "HISTDB: The schema of the database is to old. Expect errors to happen. Got ${CURRENT_VERSION}, expected ${HISTDB_SCHEMA_VERSION}"
-    echo "HISTDB: Trying to update database"
-    _histdb_update_database
-  fi
-  if [[ ${CURRENT_VERSION} -gt ${HISTDB_SCHEMA_VERSION} ]]; then
-    echo "HISTDB: You are using a newer database schema than expected. Please update histdb. Got ${CURRENT_VERSION}, expected ${HISTDB_SCHEMA_VERSION}"
-  fi
+_histdb_stop_sqlite_pipe () {
+    if [[ -n $HISTDB_FD ]]; then
+        if print -nu$HISTDB_FD; then
+            exec {HISTDB_FD}>&-;  # https://stackoverflow.com/a/22794374/2639190
+        fi
+    fi
+    # Sometimes, it seems like closing the fd does not terminate the
+    # sqlite batch process, so here is a horrible fallback.
+    # if [[ -n $HISTDB_SQLITE_PID ]]; then
+    #     ps -o args= -p $HISTDB_SQLITE_PID | read -r args
+    #     if [[ $args == "sqlite3 -batch ${HISTDB_FILE}" ]]; then
+    #         kill -TERM $HISTDB_SQLITE_PID
+    #     fi
+    # fi
 }
-_histdb_update_database() {
-  local CURRENT_VERSION=$(_histdb_query 'PRAGMA user_version')
-  local MIGRATION_FILENAME="$(dirname ${HISTDB_INSTALLED_IN})/db_migrations/${CURRENT_VERSION}to${HISTDB_SCHEMA_VERSION}.sql"
-  if [[ -f $MIGRATION_FILENAME ]]; then
-    echo "HISTDB: backing up database to ${HISTDB_FILE}.bak"
-    cp ${HISTDB_FILE} ${HISTDB_FILE}.bak
-    echo "HISTDB: applying ${MIGRATION_FILENAME} to ${HISTDB_FILE}"
-    sqlite3 ${HISTDB_FILE} < $MIGRATION_FILENAME
-    [[ "$?" -ne 0 ]] && (echo "HISTDB: error during database conversion";  cp ${HISTDB_FILE}.bak ${HISTDB_FILE}) || echo "HISTDB: update successfull"
-  else
-    echo "HISTDB: no update from ${CURRENT_VERSION} to ${HISTDB_SCHEMA_VERSION} found"
-  fi
+
+add-zsh-hook zshexit _histdb_stop_sqlite_pipe
+
+_histdb_start_sqlite_pipe () {
+    local PIPE=$(mktemp -u)
+    setopt local_options no_notify no_monitor
+    mkfifo $PIPE
+    sqlite3 -batch "${HISTDB_FILE}" < $PIPE >/dev/null &|
+    sysopen -w -o cloexec -u HISTDB_FD -- $PIPE
+    command rm $PIPE
+    HISTDB_INODE=$(zstat +inode ${HISTDB_FILE})
+}
+
+_histdb_query_batch () {
+    local CUR_INODE=$(zstat +inode ${HISTDB_FILE})
+    if [[ $CUR_INODE != $HISTDB_INODE ]]; then
+        _histdb_stop_sqlite_pipe
+        _histdb_start_sqlite_pipe
+    fi
+    cat >&$HISTDB_FD
+    echo ';' >&$HISTDB_FD # make sure last command is executed
 }
 
 _histdb_init () {
+    if [[ -n "${HISTDB_SESSION}" ]]; then
+        return
+    fi
+    
     if ! [[ -e "${HISTDB_FILE}" ]]; then
         local hist_dir="$(dirname ${HISTDB_FILE})"
         if ! [[ -d "$hist_dir" ]]; then
@@ -72,29 +93,39 @@ EOF
         fi
     fi
     if [[ -z "${HISTDB_SESSION}" ]]; then
-        _histdb_check_version
+        $(dirname ${HISTDB_INSTALLED_IN})/histdb-migrate "${HISTDB_FILE}"
         HISTDB_HOST="'$(sql_escape $(hostname))'"
         HISTDB_SESSION=$(_histdb_query "select 1+max(session) from history inner join places on places.id=history.place_id where places.host = ${HISTDB_HOST}")
         HISTDB_SESSION="${HISTDB_SESSION:-0}"
         readonly HISTDB_SESSION
     fi
+
+    _histdb_start_sqlite_pipe
+    _histdb_query_batch >/dev/null <<EOF
+create index if not exists hist_time on history(start_time);
+create index if not exists place_dir on places(dir);
+create index if not exists place_host on places(host);
+create index if not exists history_command_place on history(command_id, place_id);
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous=normal;
+EOF
 }
 
 declare -ga _BORING_COMMANDS
-_BORING_COMMANDS=("ls" " .*" "histdb.*" "top" "htop")
+_BORING_COMMANDS=("^ls$" "^cd$" "^ " "^histdb" "^top$" "^htop$")
 
 if [[ -z "${HISTDB_TABULATE_CMD[*]:-}" ]]; then
     declare -ga HISTDB_TABULATE_CMD
     HISTDB_TABULATE_CMD=(column -t -s $'\x1f')
 fi
 
-histdb-update-outcome () {
+_histdb_update_outcome () {
     local retval=$?
     local finished=$(date +%s)
-		[[ -z ${HISTDB_SESSION} ]] && return
+		[[ -z "${HISTDB_SESSION}" ]] && return
 
     _histdb_init
-    (_histdb_query <<EOF &
+    _histdb_query_batch <<EOF &|
 update history set 
       exit_status = ${retval}, 
       duration = ${finished} - start_time
@@ -102,7 +133,6 @@ where id = (select max(id) from history) and
       session = ${HISTDB_SESSION} and
       exit_status is NULL;
 EOF
-)
 }
 
 _histdb_addhistory () {
@@ -118,7 +148,7 @@ _histdb_addhistory () {
     _histdb_init
 
     if [[ "$cmd" != "''" ]]; then
-        (_histdb_query <<-EOF &
+        _histdb_query_batch <<EOF &|
 .output /dev/null
 PRAGMA busy_timeout = 70;
 .output
@@ -139,13 +169,12 @@ where
   places.dir = ${pwd}
 ;
 EOF
-)
     fi
     return 0
 }
 
-autoload -U add-zsh-hook
 add-zsh-hook zshaddhistory _histdb_addhistory
+add-zsh-hook precmd _histdb_update_outcome
 
 histdb-top () {
     _histdb_init
@@ -176,6 +205,11 @@ $sep$sep') as ${1:-cmd} from history left join commands on history.command_id=co
 
 histdb-sync () {
     _histdb_init
+
+    # this ought to apply to other readers?
+    echo "truncating WAL"
+    echo 'pragma wal_checkpoint(truncate);' | _histdb_query_batch
+    
     local hist_dir="$(dirname ${HISTDB_FILE})"
     if [[ -d "$hist_dir" ]]; then
         pushd "$hist_dir"
@@ -215,6 +249,8 @@ histdb-sync () {
         git commit -am "history" --allow-empty && git pull --no-edit && git push
         popd
     fi
+
+    echo 'pragma wal_checkpoint(passive);' | _histdb_query_batch
 }
 
 histdb () {
@@ -231,40 +267,41 @@ histdb () {
                -at+::=atdirs \
                -forget \
                -detail \
-               -desc \
                -sep:- \
                -exact \
                d h -help \
                s+::=sessions \
-               -from:- -until:- -limit:-
+               -from:- -until:- -limit:- \
+               -status:- -desc
 
     local usage="usage:$0 terms [--host] [--in] [--at] [-s n]+* [--from] [--until] [--limit] [--forget] [--sep x] [--detail]
-    --host    print the host column and show all hosts (otherwise current host)
-    --host x  find entries from host x
-    --in      find only entries run in the current dir or below
-    --in x    find only entries in directory x or below
-    --at      like --in, but excluding subdirectories
-    -s n      only show session n
-    -d        debug output query that will be run
-    --desc    descending sort order (default ist asc)
-    --detail  show details
-    --forget  forget everything which matches in the history
-    --exact   don't match substrings
-    --sep x   print with separator x, and don't tabulate
-    --from x  only show commands after date x (sqlite date parser)
-    --until x only show commands before date x (sqlite date parser)
-    --limit n only show n rows. defaults to $LINES or 25"
+    --desc     reverse sort order of results
+    --host     print the host column and show all hosts (otherwise current host)
+    --host x   find entries from host x
+    --in       find only entries run in the current dir or below
+    --in x     find only entries in directory x or below
+    --at       like --in, but excluding subdirectories
+    -s n       only show session n
+    -d         debug output query that will be run
+    --detail   show details
+    --forget   forget everything which matches in the history
+    --exact    don't match substrings
+    --sep x    print with separator x, and don't tabulate
+    --from x   only show commands after date x (sqlite date parser)
+    --until x  only show commands before date x (sqlite date parser)
+    --limit n  only show n rows. defaults to $LINES or 25
+    --status x only show rows with exit status x. Can be 'error' to find all nonzero."
 
     local selcols="session as ses, dir"
     local cols="session, replace(places.dir, '$HOME', '~') as dir"
-    local where="not (commands.argv like 'histdb%')"
+    local where="1"
     if [[ -p /dev/stdout ]]; then
         local limit=""
     else
         local limit="${$((LINES - 4)):-25}"
     fi
 
-    local forget=0
+    local forget="0"
     local exact=0
 
     if (( ${#hosts} )); then
@@ -331,7 +368,18 @@ histdb () {
                         ;;
                 esac
                 where="${where} and datetime(start_time, 'unixepoch') >= $from"
-            ;;
+                ;;
+            --status*)
+                local xstatus=${opt#--status}
+                case $xstatus in
+                    <->)
+                        where="${where} and exit_status = $xstatus"
+                        ;;
+                        error)
+                        where="${where} and exit_status <> 0"
+                        ;;
+                esac
+                ;;
             --until*)
                 local until=${opt#--until}
                 case $until in
@@ -392,22 +440,27 @@ $seps') as argv, max(start_time) as max_start"
 
     selcols="${timecol}, ${selcols}, argv as cmd"
 
+    local r_order="asc"
+    if [[ $orderdir == "asc" ]]; then
+        r_order="desc"
+    fi
+    
     local query="select ${selcols} from (select ${cols}
 from
-  history
-  left join commands on history.command_id = commands.id
-  left join places on history.place_id = places.id
+  commands 
+  join history on history.command_id = commands.id
+  join places on history.place_id = places.id
 where ${where}
 group by history.command_id, history.place_id
-order by max_start desc
+order by max_start ${r_order}
 ${limit:+limit $limit}) order by max_start ${orderdir}"
 
     ## min max date?
     local count_query="select count(*) from (select ${cols}
 from
-  history
-  left join commands on history.command_id = commands.id
-  left join places on history.place_id = places.id
+  commands
+  join history on history.command_id = commands.id
+  join places  on history.place_id = places.id
 where ${where}
 group by history.command_id, history.place_id
 order by max_start desc) order by max_start ${orderdir}"

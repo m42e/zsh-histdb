@@ -73,7 +73,7 @@ EOF
     fi
     if [[ -z "${HISTDB_SESSION}" ]]; then
         _histdb_check_version
-        HISTDB_HOST="'$(sql_escape ${HOST})'"
+        HISTDB_HOST="'$(sql_escape $(hostname))'"
         HISTDB_SESSION=$(_histdb_query "select 1+max(session) from history inner join places on places.id=history.place_id where places.host = ${HISTDB_HOST}")
         HISTDB_SESSION="${HISTDB_SESSION:-0}"
         readonly HISTDB_SESSION

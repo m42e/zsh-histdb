@@ -246,7 +246,9 @@ histdb-sync () {
           git config branch.master.remote origin
           $(dirname ${HISTDB_INSTALLED_IN})/import-history ${HISTDB_FILE} ${backup_db}
         fi
-        git commit -am "history" --allow-empty && git pull --no-edit && git push
+        _histdb_stop_sqlite_pipe
+        git commit -am "history" --allow-empty && git pull --no-edit --no-ff && git push
+        _histdb_start_sqlite_pipe
         popd
     fi
 

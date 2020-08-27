@@ -1,4 +1,11 @@
 #+TITLE:ZSH History Database
+#
+* Differences to the original source
+
+- This uses ids allover, the original has some parts left, where rowid is used
+- init git repository if the url is already known
+- fix in sync.
+- use remote database as master for merging to keep number of entries lower and allow cleanup
 
 * News
 - 30/06/20 :: Thanks to rolandwalker, add-zsh-hook is used so histdb is a better citizen.

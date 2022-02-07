@@ -20,7 +20,7 @@ elif [[ ${V_THEIRS} -lt ${V_OURS} ]]; then
     echo "Merging different database versions: ours ${V_OURS}, theirs ${V_THEIRS}."
     echo "To continue merging, their database needs migrating to newer version."
     echo "If you do this, and push the changes, then the remote version of histdb will need upgrading too."
-    
+
     read -q "REPLY?Try migrating their database? [y/n] "
     if [[ $REPLY != "y" ]]; then
         echo "Cancelled."
@@ -59,4 +59,7 @@ WHERE NO.id > (SELECT MAX(id) FROM a.history)
 VACUUM;
 EOF
 cp ${theirs} ${ours}
+sqlite3 "${theirs}" <<EOF
+pramga integrity_check;
+EOF
 echo "Now we have $(sqlite3 ${ours} 'select count(*) from history') entries"

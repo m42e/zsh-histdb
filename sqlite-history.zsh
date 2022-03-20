@@ -1,6 +1,9 @@
 which sqlite3 >/dev/null 2>&1 || return;
 
+zmodload zsh/datetime # for EPOCHSECONDS
 zmodload zsh/system # for sysopen
+builtin which sysopen &>/dev/null || return; # guard against zsh older than 5.0.8.
+
 zmodload -F zsh/stat b:zstat # just zstat
 autoload -U add-zsh-hook
 
@@ -10,6 +13,8 @@ if [[ -z ${HISTDB_FILE} ]]; then
 else
   typeset -g HISTDB_FILE
 fi
+
+typeset -g HISTDB_INODE=()
 typeset -g HISTDB_SESSION=""
 typeset -g HISTDB_HOST=""
 typeset -g HISTDB_INSTALLED_IN="${(%):-%N}"
@@ -19,11 +24,11 @@ if [[ -n ${HISTDB_REMOTE} ]]; then
 fi
 
 sql_escape () {
-    sed -e "s/'/''/g" <<< "$@" | tr -d '\000'
+    print -r -- ${${@//\'/\'\'}//$'\x00'}
 }
 
 _histdb_query () {
-    sqlite3 -cmd ".timeout 1000" "${HISTDB_FILE}" "$@"
+    sqlite3 -batch -noheader -cmd ".timeout 1000" "${HISTDB_FILE}" "$@"
     [[ "$?" -ne 0 ]] && echo "error in $@"
 }
 
@@ -46,17 +51,18 @@ _histdb_stop_sqlite_pipe () {
 add-zsh-hook zshexit _histdb_stop_sqlite_pipe
 
 _histdb_start_sqlite_pipe () {
-    local PIPE=$(mktemp -u)
+    local PIPE==(<<<'')
     setopt local_options no_notify no_monitor
     mkfifo $PIPE
-    sqlite3 -batch "${HISTDB_FILE}" < $PIPE >/dev/null &|
+    sqlite3 -batch -noheader "${HISTDB_FILE}" < $PIPE >/dev/null &|
     sysopen -w -o cloexec -u HISTDB_FD -- $PIPE
     command rm $PIPE
-    HISTDB_INODE=$(zstat +inode ${HISTDB_FILE})
+    zstat -A HISTDB_INODE +inode ${HISTDB_FILE}
 }
 
 _histdb_query_batch () {
-    local CUR_INODE=$(zstat +inode ${HISTDB_FILE})
+    local CUR_INODE
+    zstat -A CUR_INODE +inode ${HISTDB_FILE}
     if [[ $CUR_INODE != $HISTDB_INODE ]]; then
         _histdb_stop_sqlite_pipe
         _histdb_start_sqlite_pipe
@@ -71,7 +77,7 @@ _histdb_init () {
     fi
 
     if ! [[ -e "${HISTDB_FILE}" ]]; then
-        local hist_dir="$(dirname ${HISTDB_FILE})"
+        local hist_dir="${HISTDB_FILE:h}"
         if ! [[ -d "$hist_dir" ]]; then
             mkdir -p -- "$hist_dir"
         fi
@@ -93,8 +99,8 @@ EOF
         fi
     fi
     if [[ -z "${HISTDB_SESSION}" ]]; then
-        $(dirname ${HISTDB_INSTALLED_IN})/histdb-migrate "${HISTDB_FILE}"
-        HISTDB_HOST="'$(sql_escape $(hostname))'"
+        ${HISTDB_INSTALLED_IN:h}/histdb-migrate "${HISTDB_FILE}"
+        HISTDB_HOST=${HISTDB_HOST:-"'$(sql_escape ${HOST})'"}
         HISTDB_SESSION=$(_histdb_query "select 1+max(session) from history inner join places on places.id=history.place_id where places.host = ${HISTDB_HOST}")
         HISTDB_SESSION="${HISTDB_SESSION:-0}"
         readonly HISTDB_SESSION
@@ -121,8 +127,8 @@ fi
 
 _histdb_update_outcome () {
     local retval=$?
-    local finished=$(date +%s)
-		[[ -z "${HISTDB_SESSION}" ]] && return
+    local finished=$EPOCHSECONDS
+    [[ -z "${HISTDB_SESSION}" ]] && return
 
     _histdb_init
     _histdb_query_batch <<EOF &|
@@ -144,7 +150,7 @@ _histdb_addhistory () {
 
     local cmd="'$(sql_escape $cmd)'"
     local pwd="'$(sql_escape ${PWD})'"
-    local started=$(date +%s)
+    local started=$EPOCHSECONDS
     _histdb_init
 
     if [[ "$cmd" != "''" ]]; then
@@ -269,6 +275,7 @@ histdb () {
                -in+::=indirs \
                -at+::=atdirs \
                -forget \
+               -yes \
                -detail \
                -sep:- \
                -exact \
@@ -277,7 +284,7 @@ histdb () {
                -from:- -until:- -limit:- \
                -status:- -desc
 
-    local usage="usage:$0 terms [--host] [--in] [--at] [-s n]+* [--from] [--until] [--limit] [--forget] [--sep x] [--detail]
+    local usage="usage:$0 terms [--desc] [--host[ x]] [--in[ x]] [--at] [-s n]+* [-d] [--detail] [--forget] [--yes] [--exact] [--sep x] [--from x] [--until x] [--limit n] [--status x]
     --desc     reverse sort order of results
     --host     print the host column and show all hosts (otherwise current host)
     --host x   find entries from host x
@@ -288,6 +295,7 @@ histdb () {
     -d         debug output query that will be run
     --detail   show details
     --forget   forget everything which matches in the history
+    --yes      don't ask for confirmation when forgetting
     --exact    don't match substrings
     --sep x    print with separator x, and don't tabulate
     --from x   only show commands after date x (sqlite date parser)
@@ -305,6 +313,7 @@ histdb () {
     fi
 
     local forget="0"
+    local forget_accept=0
     local exact=0
 
     if (( ${#hosts} )); then
@@ -412,6 +421,9 @@ histdb () {
             --forget)
                 forget=1
                 ;;
+            --yes)
+                forget_accept=1
+                ;;
             --exact)
                 exact=1
                 ;;
@@ -486,7 +498,7 @@ order by max_start desc) order by max_start ${orderdir}"
             }
         fi
         if [[ $sep == $'\x1f' ]]; then
-            _histdb_query -header -separator $sep "$query" | iconv -f utf-8 -t utf-8 -c | "${HISTDB_TABULATE_CMD[@]}" | buffer
+            _histdb_query -header -separator $sep "$query" | iconv -f utf-8 -t utf-8 -c | buffer | "${HISTDB_TABULATE_CMD[@]}"
         else
             _histdb_query -header -separator $sep "$query" | buffer
         fi
@@ -494,7 +506,11 @@ order by max_start desc) order by max_start ${orderdir}"
     fi
 
     if [[ $forget -gt 0 ]]; then
-        read -q "REPLY?Forget all these results? [y/n] "
+        if [[ $forget_accept -gt 0 ]]; then
+          REPLY=y
+        else
+          read -q "REPLY?Forget all these results? [y/n] "
+        fi
         if [[ $REPLY =~ "[yY]" ]]; then
             _histdb_query "delete from history where
 history.id in (

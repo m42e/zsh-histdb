@@ -219,6 +219,7 @@ histdb-sync () {
     local hist_dir="$(dirname ${HISTDB_FILE})"
     if [[ -d "$hist_dir" ]]; then
         pushd "$hist_dir"
+        echo $(pwd)
         if [[ $(git rev-parse --is-inside-work-tree) != "true" ]] || [[ "$(git rev-parse --show-toplevel)" != "$(pwd)" ]]; then
             if [[ -n ${HISTDB_REMOTE} ]]; then
               tmpdir=$(mktemp -d)
@@ -254,6 +255,7 @@ histdb-sync () {
           $(dirname ${HISTDB_INSTALLED_IN})/import-history ${HISTDB_FILE} ${backup_db}
         fi
         _histdb_stop_sqlite_pipe
+        git config merge.histdb.driver "$(dirname ${HISTDB_INSTALLED_IN})/histdb-merge %O %A %B"
         git commit -am "history" --allow-empty && git pull --no-edit --no-ff && git push
         _histdb_start_sqlite_pipe
         popd

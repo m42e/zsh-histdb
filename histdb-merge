@@ -60,6 +60,6 @@ VACUUM;
 EOF
 cp ${theirs} ${ours}
 sqlite3 "${theirs}" <<EOF
-pramga integrity_check;
+pragma integrity_check;
 EOF
 echo "Now we have $(sqlite3 ${ours} 'select count(*) from history') entries"
